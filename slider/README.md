@@ -16,3 +16,8 @@ sqlite3 slider.db "SELECT user.handle, lb.track, lb.car, min(lb.time) FROM lb IN
 ```
 sqlite3 slider.db "SELECT user.handle, count(*) FROM (SELECT lb.user, lb.track, lb.car, min(lb.time) FROM lb GROUP BY lb.track, lb.car HAVING time = min(lb.time) ORDER BY lb.time) INNER JOIN user ON user.id = user GROUP BY user ORDER BY 2 DESC"
 ```
+
+#### `WR time / PB time` points per leaderboard entry
+```
+sqlite3 slider.db "SELECT user.handle, sum(CAST(top.time AS float) / lb.time) FROM lb INNER JOIN user ON user.id = lb.user INNER JOIN (SELECT lb.track, lb.car, lb.time FROM lb GROUP BY lb.track, lb.car HAVING time = min(lb.time)) AS top ON top.track = lb.track AND top.car = lb.car GROUP BY user.id ORDER BY 2 DESC"
+```
