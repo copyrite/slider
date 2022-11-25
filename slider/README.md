@@ -21,3 +21,6 @@ sqlite3 slider.db "SELECT user.handle, count(*) FROM (SELECT lb.user, lb.track, 
 ```
 sqlite3 slider.db "SELECT user.handle, sum(CAST(top.time AS float) / lb.time) FROM lb INNER JOIN user ON user.id = lb.user INNER JOIN (SELECT lb.track, lb.car, lb.time FROM lb GROUP BY lb.track, lb.car HAVING time = min(lb.time)) AS top ON top.track = lb.track AND top.car = lb.car GROUP BY user.id ORDER BY 2 DESC"
 ```
+
+#### Same, but builtins only
+sqlite3 slider.db "SELECT user.handle, sum(CAST(top.time AS float) / lb.time) FROM lb INNER JOIN user ON user.id = lb.user INNER JOIN (SELECT lb.track, lb.car, lb.time FROM lb GROUP BY lb.track, lb.car HAVING time = min(lb.time)) AS top ON top.track = lb.track AND top.car = lb.car INNER JOIN track ON lb.track = track.name WHERE track.is_builtin = true GROUP BY user.id ORDER BY 2 DESC"

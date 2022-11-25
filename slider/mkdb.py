@@ -1,78 +1,96 @@
-import itertools
+import os
 import sqlite3
 from contextlib import suppress
-from io import StringIO
 
+import dotenv
 import requests
-from lxml import etree
+import steamleaderboards
+from more_itertools import chunked
 
 APPID = 1478340
 
+BUILTIN_CARS = {
+    "Sporty",
+    "Drifty",
+    "Grippy",
+}
 
-def get_tree(url):
-    response = requests.get(url)
-    html = response.content.decode("utf-8")
-    return etree.parse(StringIO(html), parser=etree.HTMLParser())
+BUILTIN_TRACKS = {
+    "Tutoring",
+    "Leapyloop",
+    "Hilcutti",
+    "Winderun",
+    "Seabreach",
+    "Greendewald",
+    "Treypecs",
+    "Britzbane",
+    "Springshire",
+    "Sandyfalls",
+    "Brickrise",
+    "Twisted Ascension",
+    "Luckdewald",
+}
+
+SILLY_TRACKS = {
+    "Sandyfalls",
+    "Brickrise",
+    "Twisted Ascension",
+    "Luckdewald",
+}
 
 
 if __name__ == "__main__":
+    dotenv.load_dotenv()
+
     with sqlite3.connect("slider.db") as con:
         cur = con.cursor()
         with suppress(sqlite3.OperationalError):
             cur.execute("CREATE TABLE user(id PRIMARY KEY, handle)")
 
         with suppress(sqlite3.OperationalError):
+            cur.execute("CREATE TABLE track(name PRIMARY KEY, is_builtin, is_silly)")
+
+        with suppress(sqlite3.OperationalError):
             cur.execute(
                 "CREATE TABLE lb(track, user, car, time, PRIMARY KEY(track, user, car))"
             )
 
-        initial = f"https://steamcommunity.com/stats/{APPID}/leaderboards"
-        tree = get_tree(initial)
-        leaderboard_options = tree.xpath("//select[@id = 'lbID']/option")
+        users = set()
 
-        for board in leaderboard_options:
-            track, _, car = board.text.strip().rpartition(" with ")
-            print(board.text)
-            # sr = "starting rank"
-            for sr in itertools.count(1, 15):
-                url = f"{initial}/{board.get('value')}/?sr={sr}"
-                tree = get_tree(url)
-                leaderboard_entries = tree.xpath(
-                    "//div[@id = 'stats']/div[@class = 'lbentry']"
+        lbgroup = steamleaderboards.LeaderboardGroup(APPID)
+        for lb in lbgroup.leaderboards:
+            track, _, car = lb.display_name.strip().rpartition(" with ")
+
+            # Skip over badly parsing leaderboards
+            if not track or track not in BUILTIN_TRACKS or car not in BUILTIN_CARS:
+                continue
+
+            print(track, car)
+
+            cur.execute(
+                "REPLACE INTO track VALUES(?, ?, ?)",
+                (track, track in BUILTIN_TRACKS, track in SILLY_TRACKS),
+            )
+
+            for entry in lb.full().entries:
+                users |= {entry.steam_id}
+
+                cur.execute(
+                    "REPLACE INTO lb VALUES(?, ?, ?, ?)",
+                    (track, entry.steam_id, car, entry.score),
                 )
 
-                for entry in leaderboard_entries:
-                    player_link = entry.xpath("div//a[@class = 'playerName']")[0]
-
-                    player_id = (
-                        player_link.get("href")
-                        .partition("https://steamcommunity.com/profiles/")[2]
-                        .rpartition(f"/stats/{APPID}")[0]
-                    ) or (  # TODO: look up the actual profile id
-                        player_link.get("href")
-                        .partition("https://steamcommunity.com/id/")[2]
-                        .rpartition(f"/stats/{APPID}")[0]
-                    )
-                    player_name = player_link.text
-                    cur.execute(
-                        "REPLACE INTO user VALUES(?, ?)", (player_id, player_name)
-                    )
-
-                    time = int(
-                        "".join(
-                            char
-                            for char in entry.xpath("div[@class='score']")[0].text
-                            if char in "1234567890"
-                        )
-                    )
-
-                    cur.execute(
-                        "REPLACE INTO lb VALUES(?, ?, ?, ?)",
-                        (track, player_id, car, time),
-                    )
-
-                if (
-                    leaderboard_entries[0].xpath("div/div[@class = 'rR']")[0].text
-                    != f"#{sr}"
-                ):
-                    break
+        # Get usernames
+        for batch in chunked(users, 100):
+            response = requests.get(
+                f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/",
+                params={
+                    "key": os.getenv("STEAM_WEB_API_KEY", 0),
+                    "steamids": ",".join(batch),
+                },
+            )
+            for entry in response.json()["response"]["players"]:
+                cur.execute(
+                    "REPLACE INTO user VALUES(?, ?)",
+                    (entry["steamid"], entry["personaname"]),
+                )
