@@ -25,6 +25,7 @@ BUILTIN_TRACKS = {
     "Treypecs",
     "Britzbane",
     "Springshire",
+    "Rockywill",
     "Sandyfalls",
     "Brickrise",
     "Twisted Ascension",
